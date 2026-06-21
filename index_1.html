@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>실시간 강의 참여보드</title>
+<style>
+  :root {
+    --accent: #4CAF50;
+    --bg: #f4f7f6;
+  }
+  body.admin-mode {
+    --accent: #FF9800;
+    --bg: #fff7ec;
+  }
+  body {
+    font-family: 'Malgun Gothic', sans-serif;
+    background-color: var(--bg);
+    margin: 0;
+    padding: 20px;
+    color: #333;
+    transition: background-color 0.3s ease;
+  }
+  h3 { text-align: center; color: #2c3e50; }
+  .admin-banner {
+    display: none;
+    text-align: center;
+    background: #FF9800;
+    color: white;
+    font-weight: bold;
+    padding: 8px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 14px;
+  }
+  body.admin-mode .admin-banner { display: block; }
+  .result-section { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; border: 2px solid transparent; }
+  body.admin-mode .result-section { border-color: #FFD699; }
+  .result-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 16px; font-weight: bold; }
+  .bar-container { width: 100%; background-color: #eee; border-radius: 4px; overflow: hidden; height: 10px; margin-bottom: 15px; }
+  .bar { height: 100%; background-color: var(--accent); width: 0%; transition: width 0.5s ease-in-out; }
+  .btn-group { display: flex; justify-content: space-between; margin-bottom: 20px; gap: 8px; }
+  .vote-btn { flex: 1; padding: 15px 0; font-size: 18px; font-weight: bold; border: 2px solid #e0e0e0; border-radius: 10px; background: white; cursor: pointer; transition: 0.2s; -webkit-tap-highlight-color: transparent; }
+  .vote-btn.selected { background: var(--accent); color: white; border-color: var(--accent); }
+  textarea { width: 100%; box-sizing: border-box; padding: 15px; border-radius: 10px; border: 2px solid #e0e0e0; height: 100px; margin-bottom: 15px; font-size: 16px; resize: none; font-family: inherit; }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  .submit-btn { width: 100%; padding: 18px; font-size: 18px; font-weight: bold; background: #34495e; color: white; border: none; border-radius: 10px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+  .submit-btn:active { background: #2c3e50; transform: translateY(2px); }
+  #status { text-align: center; margin-top: 15px; font-weight: bold; color: var(--accent); display: none; }
+  .admin-controls { margin-top: 50px; text-align: center; border-top: 2px solid #ff9800; padding-top: 20px; }
+  .admin-controls button { background: white; border: 2px solid #ff9800; color: #ff9800; font-size: 14px; font-weight: bold; padding: 10px 20px; border-radius: 8px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+  <div class="admin-banner">👑 강사 전용 화면입니다</div>
+
+  <div class="result-section" id="resultBoard">
+    <h3>📊 실시간 투표 결과</h3>
+    <div id="bars"></div>
+    <div style="font-size:12px; color:#888; text-align:center; margin-top:15px;">결과는 실시간으로 업데이트 됩니다.</div>
+  </div>
+
+  <h3>1. 가장 공감되는 번호를 선택하세요</h3>
+  <div class="btn-group">
+    <button class="vote-btn" onclick="selectVote(1)">1</button>
+    <button class="vote-btn" onclick="selectVote(2)">2</button>
+    <button class="vote-btn" onclick="selectVote(3)">3</button>
+    <button class="vote-btn" onclick="selectVote(4)">4</button>
+    <button class="vote-btn" onclick="selectVote(5)">5</button>
+  </div>
+
+  <h3>2. 추가 의견이나 질문 (선택)</h3>
+  <textarea id="subjectiveText" placeholder="여기에 자유롭게 의견을 적어주세요."></textarea>
+
+  <button class="submit-btn" onclick="submitForm()" id="submitBtn">의견 제출하기</button>
+  <div id="status">제출이 완료되었습니다! 감사합니다.</div>
+
+  <div class="admin-controls" id="adminControls" style="display:none;">
+    <div style="color: #ff9800; font-size: 13px; font-weight: bold; margin-bottom: 8px;">👑 강사 전용 메뉴</div>
+    <button onclick="confirmReset()">다음 문제로 (모든 화면 초기화)</button>
+  </div>
+
+  <script>
+    // ⚠️ 여기에 GAS 웹 앱 배포 URL을 붙여넣으세요
+    const API_URL = "https://script.google.com/macros/s/여기에_배포된_웹앱ID/exec";
+
+    const params = new URLSearchParams(window.location.search);
+    const isAdmin = params.get('admin') === 'true';
+
+    let selectedVote = null;
+    let currentSessionId = null;
+
+    window.onload = function() {
+      if (isAdmin) {
+        document.body.classList.add('admin-mode');
+        document.getElementById('adminControls').style.display = 'block';
+      }
+      fetchData();
+      setInterval(fetchData, 3000);
+    };
+
+    function fetchData() {
+      fetch(API_URL)
+        .then(res => res.json())
+        .then(updateUI)
+        .catch(err => console.error('불러오기 실패:', err));
+    }
+
+    function selectVote(num) {
+      selectedVote = num;
+      let btns = document.querySelectorAll('.vote-btn');
+      btns.forEach(btn => btn.classList.remove('selected'));
+      btns[num - 1].classList.add('selected');
+    }
+
+    function submitForm() {
+      if (!selectedVote && document.getElementById('subjectiveText').value.trim() === '') {
+        alert("번호를 선택하거나 의견을 입력해주세요!");
+        return;
+      }
+
+      let text = document.getElementById('subjectiveText').value;
+      document.getElementById('submitBtn').innerText = "제출 중...";
+      document.getElementById('submitBtn').disabled = true;
+
+      const body = new URLSearchParams();
+      body.append('action', 'submit');
+      body.append('vote', selectedVote || '');
+      body.append('text', text);
+
+      fetch(API_URL, { method: 'POST', body: body })
+        .then(res => res.json())
+        .then(response => {
+          updateUI(response);
+          document.getElementById('submitBtn').innerText = "의견 제출하기";
+          document.getElementById('submitBtn').disabled = false;
+          document.getElementById('status').style.display = "block";
+
+          selectedVote = null;
+          let btns = document.querySelectorAll('.vote-btn');
+          btns.forEach(btn => btn.classList.remove('selected'));
+          document.getElementById('subjectiveText').value = '';
+
+          setTimeout(() => { document.getElementById('status').style.display = "none"; }, 3000);
+        })
+        .catch(err => {
+          console.error('제출 실패:', err);
+          document.getElementById('submitBtn').innerText = "의견 제출하기";
+          document.getElementById('submitBtn').disabled = false;
+        });
+    }
+
+    function confirmReset() {
+      if (confirm("정말 모든 데이터를 삭제하고 다음 문제로 넘어가시겠습니까?\n(참여자의 화면도 모두 초기화됩니다)")) {
+        const body = new URLSearchParams();
+        body.append('action', 'reset');
+
+        fetch(API_URL, { method: 'POST', body: body })
+          .then(res => res.json())
+          .then(response => {
+            updateUI(response);
+            alert("초기화되었습니다. 다음 문제를 진행해주세요!");
+          })
+          .catch(err => console.error('초기화 실패:', err));
+      }
+    }
+
+    function updateUI(response) {
+      if (currentSessionId !== null && currentSessionId !== response.sessionId) {
+        selectedVote = null;
+        let btns = document.querySelectorAll('.vote-btn');
+        btns.forEach(btn => btn.classList.remove('selected'));
+        document.getElementById('subjectiveText').value = '';
+        document.getElementById('submitBtn').innerText = "의견 제출하기";
+        document.getElementById('submitBtn').disabled = false;
+        document.getElementById('status').style.display = "none";
+      }
+      currentSessionId = response.sessionId;
+
+      let totalVotes = Object.values(response.counts).reduce((a, b) => a + b, 0);
+      let barHtml = "";
+      for (let i = 1; i <= 5; i++) {
+        let count = response.counts[i] || 0;
+        let percentage = totalVotes === 0 ? 0 : Math.round((count / totalVotes) * 100);
+        barHtml += `<div class="result-row"><span>${i}번 항목</span><span>${count}표 (${percentage}%)</span></div>
+                    <div class="bar-container"><div class="bar" style="width: ${percentage}%"></div></div>`;
+      }
+      document.getElementById('bars').innerHTML = barHtml;
+    }
+  </script>
+</body>
+</html>
